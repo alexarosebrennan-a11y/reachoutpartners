@@ -5,12 +5,9 @@ description: Research and log new corporate sponsorship prospects for ReachOut (
 
 # Find corporate sponsors for ReachOut
 
-This skill is the "agent": a repeatable research pass that finds corporate sponsorship prospects for ReachOut and keeps a running, de-duplicated list of them. It runs two ways:
+This skill is the "agent": a repeatable research pass that finds corporate sponsorship prospects for ReachOut and keeps a running, de-duplicated list of them. It is **manual-trigger only**, run in an interactive Claude Code session — ask Claude to run it, or invoke `/find-sponsors`. There is no automatic schedule; run it as often as you like.
 
-- **Automatically, weekly**, via `.github/workflows/find-sponsors.yml` — a GitHub Actions job that invokes this skill in headless CI, then syncs new rows to the canonical Google Sheet with `scripts/sync_to_sheet.py`.
-- **Manually**, any time, in an interactive Claude Code session (ask Claude to run it, or invoke `/find-sponsors`).
-
-Either way, each run should only add genuinely new information — never wipe or replace existing data.
+Each run should only add genuinely new information — never wipe or replace existing data, in either `data/prospects.csv` or the Google Sheet.
 
 Read `reachout-context.md` (repo root) first — it defines who ReachOut is, the fit-scoring priorities, and the scope rules (London/Manchester presence required, no sector or size restriction). Don't re-derive that context from scratch each run; treat it as the standing brief, and re-read it in case it's been edited since your training/last run.
 
@@ -43,11 +40,11 @@ Read `reachout-context.md` (repo root) first — it defines who ReachOut is, the
 
 5. **Update `data/prospects.csv`**: append new rows; for existing companies where you found materially new evidence, update their row in place (keep the earliest `date_found`, update `evidence_summary`/`source_url`/`fit_score` if it changed, and note what changed in the commit message) rather than creating a duplicate row.
 
-6. **Sync to the Google Sheet.** The canonical, continuously-updated Sheet is kept in sync by `scripts/sync_to_sheet.py`, which appends only companies not already present — it never overwrites or replaces existing rows, so every prospect ever found stays in the sheet across every run.
-   - If you're running via the GitHub Actions workflow, this step happens automatically after you finish (don't do anything Sheets-related yourself — see `.github/ci-research-prompt.md`).
-   - If you're running interactively in a Claude Code session and have `GOOGLE_SHEET_ID` and `GOOGLE_SERVICE_ACCOUNT_JSON` available in the environment, you can run `python scripts/sync_to_sheet.py` yourself the same way. If those aren't available in this session, just update `data/prospects.csv` and tell the user the Sheet will pick up the change on the next scheduled/manual GitHub Actions run — don't fall back to creating ad-hoc Drive file snapshots, since that would fragment the data across multiple sheets instead of keeping one canonical, append-only source.
+6. **Get new rows into the Google Sheet, without ever replacing what's already there.** The connected Google Drive tools can only create new files, not edit an existing sheet in place, so don't use them for this — creating a new file each run would fragment the data across multiple sheets instead of one canonical record. Instead:
+   - **Default**: after updating the CSV, produce a small, ready-to-paste block (tab-separated, one row per new/updated prospect, same column order as the sheet) of *only* the new or changed rows, and tell the user to paste it into the existing sheet (append to the bottom). Don't regenerate the whole sheet's contents.
+   - **If** `GOOGLE_SHEET_ID` and `GOOGLE_SERVICE_ACCOUNT_JSON` are available as environment variables in this session (one-time setup — ask the user if they want this instead of the paste-in step), run `python scripts/sync_to_sheet.py` to append the new rows directly via the Sheets API.
 
-7. **Commit and push** the updated `data/prospects.csv` (and `data/excluded.csv` if touched) to the current branch with a message summarizing what was added/changed (e.g. "Add 4 new sponsor prospects: Company A, B, C, D"). Skip this if the calling context (e.g. the GitHub Actions workflow) already handles committing for you.
+7. **Commit and push** the updated `data/prospects.csv` (and `data/excluded.csv` if touched) to the current branch with a message summarizing what was added/changed (e.g. "Add 4 new sponsor prospects: Company A, B, C, D").
 
 8. **Report back to the user**: list what's new this run (company, one-liner, fit score, source), and call out anything time-sensitive (open applications, deadlines) at the top. If nothing new was found, say so plainly rather than padding the list with low-fit filler.
 

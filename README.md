@@ -8,23 +8,18 @@ It looks for two kinds of signal:
 
 ## How it runs
 
-**Automatically, every week**, via GitHub Actions (`.github/workflows/find-sponsors.yml`) — no Claude session needs to be open. It:
-1. Runs the research pass headlessly (Claude Code CLI + `ANTHROPIC_API_KEY`), updating `data/prospects.csv`.
-2. Appends any new prospects to the canonical Google Sheet (`scripts/sync_to_sheet.py`) — **append-only**: existing rows are never overwritten or replaced, so the sheet is a permanent, growing record across every run.
-3. Commits and pushes the updated CSV back to the repo.
+**Manual trigger only, done here in Claude** — there's no automatic schedule and no separate infrastructure to run or pay for. Whenever you want fresh research, ask in this Claude Code session:
 
-You can also trigger it **manually** any time — either click "Run workflow" on `find-sponsors.yml` in the GitHub Actions tab, or, in an interactive Claude Code session, ask "Find new sponsor prospects for ReachOut" / `/find-sponsors`.
+> "Find new sponsor prospects for ReachOut" / `/find-sponsors`
 
-**Required one-time setup** (see [Setup](#setup-required-secrets)) — the schedule won't do anything useful until these are in place.
+Each run reads `data/prospects.csv` first so it only adds genuinely new leads or new evidence, updates the CSV, commits and pushes it, and gives you a ready-to-paste block of just the new rows to drop into the Google Sheet (see [The Google Sheet](#the-google-sheet) below for why it's a paste-in rather than automatic).
 
 ## Repo structure
 
 ```
 reachout-context.md                    Who ReachOut is, fit-scoring rubric, scope rules
 .claude/skills/find-sponsors/SKILL.md  The agent's step-by-step research process
-.github/workflows/find-sponsors.yml    Weekly (+ manual) CI schedule
-.github/ci-research-prompt.md          Prompt used for the headless CI run
-scripts/sync_to_sheet.py               Append-only sync of new prospects to the Google Sheet
+scripts/sync_to_sheet.py               Optional: direct append-only Sheets API sync (see below)
 data/prospects.csv                     The running, de-duplicated prospect list (source of truth)
 data/excluded.csv                      (create when needed) companies to skip, e.g. already approached/ruled out
 ```
@@ -49,28 +44,14 @@ The first seeded run (2026-07-02) found 13 leads, including one time-sensitive o
 
 ## The Google Sheet
 
-**One sheet, permanently growing.** [ReachOut Corporate Sponsor Prospects](https://docs.google.com/spreadsheets/d/1GxjJs3GxXpvWKnTGqPnVoCg4eFTi2HZVOnBJehfEAnc/edit) already holds the first 13 seeded leads. Every future run only *appends* companies not already in it — nothing is ever overwritten, replaced, or removed by the sync script. `data/prospects.csv` in this repo is the working copy the agent reads/writes each run; the Sheet is the durable, shareable record built from it. (You can rename the sheet's title in Drive if you want to drop the date from it — that's just cosmetic.)
+**One sheet, permanently growing, never replaced.** [ReachOut Corporate Sponsor Prospects](https://docs.google.com/spreadsheets/d/1GxjJs3GxXpvWKnTGqPnVoCg4eFTi2HZVOnBJehfEAnc/edit) already holds the first 13 seeded leads. `data/prospects.csv` in this repo is the working copy the agent reads/writes each run; the Sheet is the durable, shareable copy for people who don't want to look at GitHub.
 
-## Setup required (secrets)
+The connected Google Drive tools can only *create* files, not edit an existing sheet in place, so keeping it as one accumulating sheet needs one of two approaches:
 
-The CI workflow can't run until these are added in **GitHub repo Settings → Secrets and variables → Actions**:
-
-| Name | Type | What it is |
-|---|---|---|
-| `ANTHROPIC_API_KEY` | Secret | An API key from [console.anthropic.com](https://console.anthropic.com) (needs billing enabled). Powers the weekly headless research run — usage is pay-per-call, roughly one run/week, so cost should be minimal and predictable. |
-| `GOOGLE_SERVICE_ACCOUNT_JSON` | Secret | Full JSON key of a Google Cloud service account (see below) with **Editor** access to the target Sheet. |
-| `GOOGLE_SHEET_ID` | Variable (not secret — it's just an ID) | `1GxjJs3GxXpvWKnTGqPnVoCg4eFTi2HZVOnBJehfEAnc` — the ID from the Sheet's URL, unless you'd rather point it at a different sheet. |
-
-**To create the Google service account** (one-time, in [Google Cloud Console](https://console.cloud.google.com)):
-1. Create or pick a project, then enable the **Google Sheets API** for it.
-2. Create a **Service Account** (IAM & Admin → Service Accounts).
-3. Create a JSON key for it and download it — this is the value for `GOOGLE_SERVICE_ACCOUNT_JSON` (paste the whole file contents in as the secret).
-4. Open the target Google Sheet, click Share, and give the service account's email (looks like `name@project-id.iam.gserviceaccount.com`) **Editor** access — without this the sync will fail with a permissions error.
-
-**Important**: the `schedule` trigger in GitHub Actions only fires for workflows that exist on the repository's **default branch**. Until this branch is merged, the weekly schedule is dormant — `workflow_dispatch` (manual "Run workflow" button) works on any branch in the meantime, so you can test the full pipeline once secrets are set without waiting for a merge.
+- **Default (no setup)**: after each manual run, Claude gives you a small block of just the new/changed rows to paste into the bottom of the existing sheet yourself.
+- **Optional (one-time setup)**: `scripts/sync_to_sheet.py` uses the real Google Sheets API to append new rows automatically — no copy-paste needed, and it never touches existing rows. To enable it: create a Google Cloud service account with the Sheets API enabled, share the Sheet with its email as Editor, and hand Claude the JSON key + the Sheet ID (`1GxjJs3GxXpvWKnTGqPnVoCg4eFTi2HZVOnBJehfEAnc`) to use for that session. Ask Claude to set this up if you'd rather not paste rows in by hand.
 
 ## Updating scope
 
 - To stop re-surfacing companies you've already approached or ruled out, create `data/excluded.csv` (same `company` column) — the skill checks it before adding anything.
 - To change geographic or sector scope, edit `reachout-context.md` — the skill reads it as its standing brief.
-- To change the cadence, edit the `cron:` line in `.github/workflows/find-sponsors.yml`.
